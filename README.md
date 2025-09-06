@@ -29,6 +29,7 @@ A professional-grade dual-zone reflow soldering station with precise temperature
 - **2x Solid State Relays (SSR)** for heater control
 - **2x NTC Thermistors** (100kΩ @ 25°C, β=3950)
 - **12V PC Fan** with PWM control
+- **2x 3-5v Opto Isolators** (Optocoupler isolation Module GPIO19 for fan Control, GPIO18 for Tacho)
 - **Heating Elements** (compatible with your soldering plates)
 
 ### Circuit Components
@@ -55,6 +56,7 @@ Back Sensor:  GPIO (define in SensorManager)
 
 // Fan Control
 Fan PWM: GPIO19
+Fan TACHO: GPIO18 (Wired in Reverse Opto Isolator)
 
 // User Interface
 Encoder A: GPIO (define in InputEncoder)
@@ -97,7 +99,8 @@ ESP32 Pin Connections:
 │   ├── Front NTC → ADC Pin + 100kΩ pullup
 │   └── Back NTC → ADC Pin + 100kΩ pullup
 ├── Fan Control
-│   └── GPIO19 → 1kΩ → BC337 Base
+│   └── GPIO19 → Opto Isolator IN GND/POS+, GND Out Isolation 12v/GND
+│   └── GPIO18 → Opto Isolator, GND Isolation
 └── Rotary Encoder
     ├── A → GPIO (configurable)
     ├── B → GPIO (configurable)
