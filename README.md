@@ -141,6 +141,23 @@ ESP32 Pin Connections:
 
 ### Display Information
 
+Main Menu Display
+
+┌─────────────────────────────┐
+│ Reflow Station              │
+│                             │
+│ > Plates          F■ B□     │ ← Selected menu item
+│   Profile         F:185C    │
+│   Constant        B:182C    │
+│   Test                      │
+└─────────────────────────────┘
+Icon Legend:
+
+F■ - Front plate ACTIVE (filled box)
+F□ - Front plate inactive (empty box)
+B■ - Back plate ACTIVE (filled box)
+B□ - Back plate inactive (empty box)
+
 ```
 ┌─────────────────────────────┐
 │ Reflow Station    SP:200C   │
