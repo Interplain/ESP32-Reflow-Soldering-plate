@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ESP32 Reflow Soldering Station
 
 A professional-grade dual-zone reflow soldering station with precise temperature control, customizable profiles, and an intuitive user interface.
@@ -308,3 +309,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ---
 
 **⚠️ DISCLAIMER**: This project involves high temperatures and electrical systems. Build and use at your own risk. The authors are not responsible for any damage, injury, or loss resulting from the use of this information.
+=======
+
+>>>>>>> ace7779 (Test commit after setup)
