@@ -29,13 +29,13 @@ A professional-grade dual-zone reflow soldering station with precise temperature
 - **2x Solid State Relays (SSR)** for heater control
 - **2x NTC Thermistors** (100kΩ @ 25°C, β=3950)
 - **12V PC Fan** with PWM control
-- **2x 3-5v Opto Isolators** (Optocoupler isolation Module GPIO19 for fan Control, GPIO18 for Tacho)
+- **2x 6N137 Opto Isolators** (Optocoupler isolation Module GPIO19 for fan Control, GPIO18 for Tacho)
 - **Heating Elements** (compatible with your soldering plates)
 
 ### Circuit Components
 - **2x 100kΩ Resistors** (thermistor voltage dividers)
-- **1kΩ Resistor** (fan transistor base)
-- **BC337 Transistor** (fan driver)
+- **4.7kΩ Resistor** (fan transistor base)
+- **12v to 7805 Regulator** (fan driver)
 - **Pull-up resistors** for encoder (if needed)
 
 ## 📋 Pin Configuration
