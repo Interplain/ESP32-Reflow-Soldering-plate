@@ -1,4 +1,4 @@
-// ReflowStation.cpp - PlatformIO Version
+// ReflowStation.cpp - PlatformIO Version with Integrated Profile Display
 #include <Arduino.h>
 #include "Types.h"
 #include "Profiles.h"
@@ -7,17 +7,7 @@
 #include "HeaterController.h"
 #include "FanController.h"
 #include "InputEncoder.h"
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-
-// ---- Display Setup ----
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-#define OLED_RESET -1
-#define OLED_ADDR 0x3C
-#define I2C_SDA 21
-#define I2C_SCL 22
+#include "DisplayUI.h"
 
 // ---- Hardware Pins ----
 #define THERM_FRONT 32
@@ -29,14 +19,16 @@
 #define ENC_A       34
 #define ENC_B       35
 #define ENC_BTN     25
+#define I2C_SDA     21
+#define I2C_SCL     22
 
 // ---- Global Objects ----
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 SensorManager sensors;
 HeaterController heater;
 FanController fan;
 ProfileRunner profRunner;
 InputEncoder encoder;
+DisplayUI ui;
 
 // ---- State Variables ----
 Mode currentMode = MENU;
@@ -54,14 +46,13 @@ bool constRunning = false;
 bool profileDone = false;
 bool profileAborted = false;
 unsigned long runStartTime = 0;
-int currentSecond = 0;
 
-// ---- Control State Variables (moved to global scope) ----
+// ---- Control State Variables ----
 float g_lastSetpoint = 0.0f;
 bool g_inCoolingMode = false;
 bool g_coolingResetDone = false;
 
-// ---- Cooling Test Variables (moved to global scope) ----
+// ---- Cooling Test Variables ----
 bool g_testStarted = false;
 unsigned long g_lastLog = 0;
 float g_startTemp = 0;
@@ -90,272 +81,16 @@ void stopHeatAndReset() {
     heatSelection = HEAT_BOTH;
 }
 
-// ---- Display Functions ----
-void drawHeatBoxes(int x, int y) {
-    display.setCursor(x, y);
-    display.print("F");
-    display.drawRect(x + 8, y, 8, 8, SSD1306_WHITE);
-    if (heatSelection == HEAT_FRONT || heatSelection == HEAT_BOTH) {
-        display.fillRect(x + 9, y + 1, 6, 6, SSD1306_WHITE);
-    }
-    
-    display.setCursor(x + 20, y);
-    display.print("B");
-    display.drawRect(x + 28, y, 8, 8, SSD1306_WHITE);
-    if (heatSelection == HEAT_BACK || heatSelection == HEAT_BOTH) {
-        display.fillRect(x + 29, y + 1, 6, 6, SSD1306_WHITE);
-    }
-}
-
-void renderMenu() {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    
-    display.setCursor(0, 0);
-    display.print("Reflow Station");
-    
-    const char* menuItems[] = {"Plates", "Profile", "Constant", "Fan", "Test"};
-    for (int i = 0; i < 5; i++) {
-        int y = 12 + (i * 10);
-        if (i == menuIndex) {
-            display.fillTriangle(0, y-3, 0, y+3, 5, y, SSD1306_WHITE);
-        }
-        display.setCursor(10, y);
-        display.print(menuItems[i]);
-    }
-    
-    drawHeatBoxes(70, 12);
-    
-    display.setCursor(70, 24);
-    if (manualFanMode) {
-        display.print("Fan:");
-        display.print(manualFanState ? "ON" : "OFF");
-    } else {
-        display.print("Auto");
-    }
-    
-    display.setCursor(70, 38);
-    display.print("F:");
-    display.print((int)sensors.tempFront());
-    display.print("C");
-    
-    display.setCursor(70, 50);
-    display.print("B:");
-    display.print((int)sensors.tempBack());
-    display.print("C");
-    
-    display.display();
-}
-
-void renderProfileSetup() {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    
-    display.setCursor(0, 0);
-    display.print("Profile Setup");
-    
-    display.setCursor(0, 20);
-    display.print("Pick profile");
-    
-    display.setCursor(10, 32);
-    display.print(PROFILES[selectedProfile].name);
-    
-    display.setCursor(0, 56);
-    display.print("Start  Long=Back");
-    
-    display.display();
-}
-
-void renderConstSetup() {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    
-    display.setCursor(0, 0);
-    display.print("Constant Setup");
-    
-    display.setCursor(0, 24);
-    display.print("Setpoint: ");
-    display.print(constTemp);
-    display.print("C");
-    
-    display.setCursor(0, 56);
-    display.print("Start  Long=Back");
-    
-    display.display();
-}
-
-void renderProfileRun() {
-    if (profileDone || profileAborted) {
-        display.clearDisplay();
-        display.setTextSize(1);
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(30, 25);
-        display.print(profileDone ? "COMPLETE" : "ABORTED");
-        display.setCursor(20, 45);
-        display.print("Press to continue");
-        display.display();
-        return;
-    }
-    
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    
-    display.setCursor(0, 0);
-    display.print(PROFILES[selectedProfile].name);
-    
-    int remaining = profRunner.durationSec() - currentSecond;
-    display.setCursor(90, 0);
-    display.print(remaining);
-    display.print("s");
-    
-    bool finished;
-    float sp = profRunner.update(millis(), finished);
-    
-    display.setCursor(0, 15);
-    display.print("SP: ");
-    display.print((int)sp);
-    display.print("C");
-    
-    display.setCursor(0, 27);
-    display.print("F: ");
-    display.print((int)sensors.tempFront());
-    display.print("C  ");
-    display.print(heater.dutyFrontPct());
-    display.print("%");
-    
-    display.setCursor(0, 39);
-    display.print("B: ");
-    display.print((int)sensors.tempBack());
-    display.print("C  ");
-    display.print(heater.dutyBackPct());
-    display.print("%");
-    
-    drawHeatBoxes(89, 13);
-    
-    display.setCursor(0, 55);
-    display.print("Press=Abort");
-    
-    display.display();
-}
-
-void renderConstRun() {
-    if (profileDone || profileAborted) {
-        display.clearDisplay();
-        display.setTextSize(1);
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(30, 25);
-        display.print("COMPLETE");
-        display.setCursor(20, 45);
-        display.print("Press to continue");
-        display.display();
-        return;
-    }
-    
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    
-    display.setCursor(0, 0);
-    display.print("Constant Run");
-    
-    int remaining = constDuration - currentSecond;
-    display.setCursor(90, 0);
-    display.print(remaining);
-    display.print("s");
-    
-    display.setCursor(0, 15);
-    display.print("SP: ");
-    display.print(constTemp);
-    display.print("C");
-    
-    display.setCursor(0, 27);
-    display.print("F: ");
-    display.print((int)sensors.tempFront());
-    display.print("C  ");
-    display.print(heater.dutyFrontPct());
-    display.print("%");
-    
-    display.setCursor(0, 39);
-    display.print("B: ");
-    display.print((int)sensors.tempBack());
-    display.print("C  ");
-    display.print(heater.dutyBackPct());
-    display.print("%");
-    
-    drawHeatBoxes(89, 13);
-    
-    display.setCursor(0, 55);
-    display.print("Press=Abort");
-    
-    display.display();
-}
-
-void renderTest() {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    
-    display.setCursor(0, 0);
-    display.print("Test Heaters");
-    
-    display.setCursor(0, 15);
-    display.print("Enc changes duty");
-    
-    display.setCursor(15, 30);
-    display.print("Duty: ");
-    display.print(testPct);
-    display.print("%");
-    
-    display.setCursor(0, 42);
-    display.print("F:");
-    display.print((int)sensors.tempFront());
-    display.print("C  B:");
-    display.print((int)sensors.tempBack());
-    display.print("C");
-    
-    display.setCursor(0, 56);
-    display.print("Hold=CoolTest");
-    
-    display.display();
-}
-
-void renderCoolTest() {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    
-    display.setCursor(0, 0);
-    display.print("Cooling Test");
-    
-    display.setCursor(0, 20);
-    display.print("F:");
-    display.print((int)sensors.tempFront());
-    display.print("C");
-    
-    display.setCursor(0, 32);
-    display.print("B:");
-    display.print((int)sensors.tempBack());
-    display.print("C");
-    
-    display.setCursor(0, 50);
-    display.print("Check Serial");
-    
-    display.display();
-}
-
 // ---- Mode Control Functions ----
 void startProfile() {
     profRunner.begin(PROFILES[selectedProfile]);
+    ui.setupProfileDisplay(PROFILES[selectedProfile], profRunner.durationSec());
+    
     currentMode = PROFILE_RUN;
     profileRunning = true;
     profileDone = false;
     profileAborted = false;
     runStartTime = millis();
-    currentSecond = 0;
     
     // Reset cooling state variables
     g_lastSetpoint = 0.0f;
@@ -380,7 +115,6 @@ void startConstant() {
     profileDone = false;
     profileAborted = false;
     runStartTime = millis();
-    currentSecond = 0;
     
     startHeatFromSelection();
     manualFanMode = false;
@@ -411,8 +145,6 @@ void returnToMenu() {
     g_inCoolingMode = false;
     g_coolingResetDone = false;
 }
-
-
 
 void handleButtonPress() {
     switch (currentMode) {
@@ -625,10 +357,12 @@ void runCoolingTest() {
 // ---- Main Control ----
 void runControl() {
     if (profileRunning && !profileAborted) {
-        currentSecond = (millis() - runStartTime) / 1000;
+        int currentSecond = (millis() - runStartTime) / 1000;
         
         bool finished = false;
         float setpoint = profRunner.update(millis(), finished);
+        int elapsed = profRunner.elapsedSec(millis());
+        int remaining = profRunner.durationSec() - elapsed;
         
         if (finished) {
             profileDone = true;
@@ -677,23 +411,19 @@ void runControl() {
                 heater.control(heatActive, setpoint, sensors.tempFront(), sensors.tempBack());
             }
             
-            // Fan control
-            if (!manualFanMode) {
-                if ((g_inCoolingMode && maxTemp > 80.0f) || (inCoolingPhase && maxTemp > setpoint + 2.0f)) {
-                    if (!fan.isOn()) {
-                        fan.set(true);
-                        Serial.println("[FAN] Cooling activated");
-                    }
-                } else if (g_inCoolingMode && maxTemp > 60.0f) {
-                    if (!fan.isOn()) {
-                        fan.set(true);
-                        Serial.println("[FAN] Cooling mode - fan on");
-                    }
-                } else if (maxTemp < 50.0f && fan.isOn()) {
-                    fan.set(false);
-                    Serial.println("[FAN] Cool enough - fan off");
-                }
-            }
+        // Fan control
+if (!manualFanMode) {
+    if ((g_inCoolingMode && maxTemp > 80.0f) || (inCoolingPhase && maxTemp > setpoint + 2.0f)) {
+        fan.set(true);
+        Serial.println("[FAN] Cooling activated");
+    } else if (g_inCoolingMode && maxTemp > 60.0f) {
+        fan.set(true);
+        Serial.println("[FAN] Cooling mode - fan on");
+    } else if (maxTemp < 50.0f) {
+        fan.set(false);
+        Serial.println("[FAN] Cool enough - fan off");
+    }
+}
             
             // Safety override
             if (maxTemp >= 80.0f && !fan.isOn() && !manualFanMode) {
@@ -701,10 +431,16 @@ void runControl() {
                 Serial.println("[FAN] Safety override (>80C)");
             }
         }
+        
+        // Update profile display with condensed graph + data
+        ui.showProfileRun(PROFILES[selectedProfile], setpoint, 
+                          sensors.tempFront(), sensors.tempBack(),
+                          heater.dutyFrontPct(), heater.dutyBackPct(),
+                          elapsed, remaining, profileDone, profileAborted);
     }
     
     if (constRunning && !profileAborted) {
-        currentSecond = (millis() - runStartTime) / 1000;
+        int currentSecond = (millis() - runStartTime) / 1000;
         
         if (currentSecond >= constDuration) {
             profileDone = true;
@@ -723,10 +459,18 @@ void runControl() {
                 }
             }
         }
+        
+        // Update constant display (uses simple layout)
+        int remaining = constDuration - currentSecond;
+        ui.showRun(constTemp, sensors.tempFront(), sensors.tempBack(),
+                   heater.dutyFrontPct(), heater.dutyBackPct(), CONST_RUN);
     }
     
+    // Manual heater control for TEST_RUN mode
     if (currentMode == TEST_RUN) {
-        heater.reset();
+        // Use manual control by bypassing PID and directly setting a constant setpoint
+        float manualSetpoint = (float)testPct * 2.0f;  // Convert 0-100% to 0-200°C range
+        heater.control(heatSelection, manualSetpoint, sensors.tempFront(), sensors.tempBack());
     }
     
     if (currentMode == COOL_TEST) {
@@ -734,41 +478,63 @@ void runControl() {
     }
 }
 
+// ---- Display Update for Non-Running Modes ----
+void updateDisplay() {
+    if (!profileRunning && !constRunning) {
+        switch (currentMode) {
+            case MENU:
+                ui.showMenu(menuIndex, sensors.tempFront(), sensors.tempBack(), 
+                           heatSelection, manualFanMode, manualFanState);
+                break;
+                
+            case PROF_SETUP:
+                ui.showProfileSetup(PROFILES[selectedProfile], 2);
+                break;
+                
+            case CONST_SETUP:
+                ui.showConstantSetup(constTemp, constDuration);
+                break;
+                
+            case TEST_RUN:
+                ui.showTest(testPct, sensors.tempFront(), sensors.tempBack(), heatSelection);
+                break;
+                
+            case COOL_TEST:
+                ui.showCoolTest(sensors.tempFront(), sensors.tempBack());
+                break;
+                
+            default:
+                break;
+        }
+    }
+}
+
 // ---- Setup & Loop ----
 void setup() {
     Serial.begin(115200);
-    delay(1500);                     // give the monitor time to attach
+    delay(1500);
     Serial.println("Serial OK");
     Serial.println("Reflow Station Starting...");
     Serial.printf("ESP_ARDUINO_VERSION_MAJOR = %d\n", ESP_ARDUINO_VERSION_MAJOR);
-    bool ok = fan.begin(FAN_PIN, /*activeLow=*/true, 25000, 8);
+    
+    // Initialize all modules
+    bool ok = fan.begin(FAN_PIN, true, 25000, 8);
     Serial.printf("[FAN] begin ok=%d\n", ok);
 
-// sanity: OFF -> ON -> OFF
-Serial.println("[FAN] sanity OFF-ON-OFF");
-fan.set(false); delay(400);
-fan.set(true);  delay(400);
-fan.set(false);
+    // Fan sanity check: OFF -> ON -> OFF
+    Serial.println("[FAN] sanity OFF-ON-OFF");
+    fan.set(false); delay(400);
+    fan.set(true);  delay(400);
+    fan.set(false);
 
-
-
-    Wire.begin(I2C_SDA, I2C_SCL);
-    Wire.setClock(400000);
-    
-    if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
-        Serial.println("SSD1306 allocation failed");
-        while(1);
-    }
-    
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(0, 0);
-    display.print("Initializing...");
-    display.display();
+    // Initialize display using DisplayUI
+    ui.begin(I2C_SDA, I2C_SCL);
     
     sensors.begin(THERM_FRONT, THERM_BACK);
-    
+    // Add these lines in setup() after sensors.begin():
+    sensors.setFrontCal(-120);
+    sensors.setBackCal(-120);
+    // Let sensors stabilize
     for (int i = 0; i < 20; i++) {
         sensors.update();
         delay(50);
@@ -785,12 +551,11 @@ fan.set(false);
     }
     
     heater.begin(SSR_FRONT, SSR_BACK, 1000);
-    fan.begin(FAN_PIN, true, 25000, 8);
-    fan.set(false);
     encoder.begin(ENC_A, ENC_B, ENC_BTN);
     
     pinMode(BUZZER_PIN, OUTPUT);
     
+    // Hot plate detection and warning
     float maxTemp = max(sensors.tempFront(), sensors.tempBack());
     if (maxTemp > 40.0f) {
         fan.set(true);
@@ -800,20 +565,8 @@ fan.set(false);
         Serial.print(maxTemp);
         Serial.println("C - Cooling fan activated!");
         
-        display.clearDisplay();
-        display.setTextSize(1);
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(10, 10);
-        display.print("!!! WARNING !!!");
-        display.setCursor(0, 25);
-        display.print("Hot plates detected");
-        display.setCursor(0, 35);
-        display.print("Temp: ");
-        display.print((int)maxTemp);
-        display.print("C");
-        display.setCursor(0, 50);
-        display.print("Auto-cooling active");
-        display.display();
+        // Use DisplayUI for warning message
+        ui.clear();
         
         tone(BUZZER_PIN, 800, 100);
         delay(150);
@@ -825,10 +578,7 @@ fan.set(false);
     }
     
     Serial.println("Initialization complete");
-    
-    delay(1000);
-    display.clearDisplay();
-    display.display();
+    ui.clear();
 }
 
 void loop() {
@@ -836,6 +586,7 @@ void loop() {
     handleEncoder();
     runControl();
     
+    // Auto-cooling for hot plates in menu mode
     if (currentMode == MENU && !manualFanMode) {
         float maxTemp = max(sensors.tempFront(), sensors.tempBack());
         if (maxTemp < 35.0f && fan.isOn()) {
@@ -843,17 +594,10 @@ void loop() {
         }
     }
     
+    // Update display for non-running modes only
     static unsigned long lastDisplayUpdate = 0;
     if (millis() - lastDisplayUpdate > 100) {
-        switch (currentMode) {
-            case MENU:        renderMenu();        break;
-            case PROF_SETUP:  renderProfileSetup(); break;
-            case PROFILE_RUN: renderProfileRun();   break;
-            case CONST_SETUP: renderConstSetup();   break;
-            case CONST_RUN:   renderConstRun();     break;
-            case TEST_RUN:    renderTest();         break;
-            case COOL_TEST:   renderCoolTest();     break;
-        }
+        updateDisplay();
         lastDisplayUpdate = millis();
     }
 }
